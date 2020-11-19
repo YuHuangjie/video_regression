@@ -6,9 +6,8 @@ import numpy as np
 from rff.reject_sample import joint_reject_sample
 
 class FFM:
-    def __init__(self, B, B_view):
+    def __init__(self, B):
         self.B = B
-        self.B_view = B_view
 
         if B is None:
             self.map_f = lambda x: x
@@ -16,16 +15,14 @@ class FFM:
             def proj(x, B):
                 x_proj = torch.matmul(2 * np.pi * x, B.T)
                 return torch.cat([torch.sin(x_proj), torch.cos(x_proj)], dim=-1)
-            self.map_f = lambda x: torch.cat([proj(x[:,:2], self.B), proj(x[:,2:], self.B_view)], dim=-1)
+            self.map_f = lambda x: proj(x, self.B)
 
     def map_size(self):
-        return (2*self.B.shape[0] if self.B is not None else 3) + \
-               (2*self.B_view.shape[0] if self.B_view is not None else 3)
+        return (2*self.B.shape[0] if self.B is not None else 3)
 
     def map(self, X):
         if self.B.device != X.device:
             self.B = self.B.to(X.device)
-            self.B_view = self.B_view.to(X.device)
         return self.map_f(X)
 
 class RFF:
@@ -73,8 +70,8 @@ class MLP(nn.Module):
         outputs = self.output_linear(h)
         return outputs
     
-def make_ffm_network(D, W, B=None, B_view=None):
-    map = FFM(B, B_view)
+def make_ffm_network(D, W, B=None):
+    map = FFM(B)
     return MLP(D, W, map).float()
 
 def make_rff_network(D, W, We, b):
@@ -82,6 +79,6 @@ def make_rff_network(D, W, We, b):
     return MLP(D, W, map).float()
 
 model_pred = lambda model, x: model(x)
-model_loss = lambda pred, y: .5 * torch.mean((pred - y) ** 2)
-model_loss2 = lambda model, x, y: .5 * torch.mean((model_pred(model, x) - y) ** 2)
-model_psnr = lambda loss : -10. * torch.log10(2.*loss)
+model_loss = lambda pred, y: torch.mean((pred - y) ** 2)
+model_loss2 = lambda model, x, y: torch.mean((model_pred(model, x) - y) ** 2)
+model_psnr = lambda loss : -10. * torch.log10(loss)

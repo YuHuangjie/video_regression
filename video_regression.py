@@ -11,6 +11,7 @@ from tqdm import tqdm
 import configargparse
 
 from model import *
+from rff.reject_sample import *
 
 def get_3d_mgrid(shape):
     pixel_coords = np.stack(np.mgrid[:shape[0], :shape[1], :shape[2]], axis=-1).astype(np.float32)
@@ -33,6 +34,10 @@ class Video:
         elif 'mp4' in path_to_video:
             self.vid = skvideo.io.vread(path_to_video).astype(np.single) / 255.
 
+        # subtract mean from data
+        self.center = np.mean(self.vid, axis=(0,1,2))
+        self.vid -= self.center
+
         self.shape = self.vid.shape[:-1]
         self.channels = self.vid.shape[-1]
 
@@ -42,7 +47,7 @@ class VideoDataset(torch.utils.data.Dataset):
         self.vid = video
 
         self.mgrid = get_3d_mgrid(self.vid.shape)
-        data = (torch.from_numpy(self.vid.vid) - 0.5) * 2
+        data = torch.from_numpy(self.vid.vid)
         self.data = data.view(-1, self.vid.channels)
         self.N_samples = self.mgrid.shape[0]
 
@@ -53,7 +58,7 @@ class VideoDataset(torch.utils.data.Dataset):
         return self.mgrid[idx, :], self.data[idx, :]
 
 def train(model, train_dataloader, lr, epochs, logdir, epochs_til_checkpoint=10, 
-    steps_til_summary=100, val_dataloader=None):
+    steps_til_summary=100, val_dataloader=None, global_step=0, model_params=None):
     optim = torch.optim.Adam(lr=lr, params=model.parameters())
 
     os.makedirs(logdir, exist_ok=True)
@@ -64,14 +69,17 @@ def train(model, train_dataloader, lr, epochs, logdir, epochs_til_checkpoint=10,
     summaries_dir = os.path.join(logdir, 'summaries')
     os.makedirs(summaries_dir, exist_ok=True)
 
-    writer = SummaryWriter(summaries_dir, purge_step=0)
+    writer = SummaryWriter(summaries_dir, purge_step=global_step)
 
-    total_steps = 0
+    total_steps = global_step
     with tqdm(total=len(train_dataloader) * epochs) as pbar:
+        pbar.update(total_steps)
         train_losses = []
-        for epoch in range(epochs):
+        for epoch in range(total_steps//len(train_dataloader), epochs):
             if not epoch % epochs_til_checkpoint and epoch:
-                torch.save(model.state_dict(),
+                torch.save({'model': model.state_dict(),
+                            'params': model_params,
+                            'global_step': total_steps},
                            os.path.join(checkpoints_dir, f'model_epoch_{epoch:04}.pt'))
                 np.savetxt(os.path.join(checkpoints_dir, f'train_losses_epoch_{epoch:04}.txt'),
                            np.array(train_losses))
@@ -114,7 +122,9 @@ def train(model, train_dataloader, lr, epochs, logdir, epochs_til_checkpoint=10,
 
                 total_steps += 1
 
-        torch.save(model.state_dict(),
+        torch.save({'model': model.state_dict(),
+                    'params': model_params,
+                    'global_step': total_steps},
                    os.path.join(checkpoints_dir, 'model_final.pt'))
         np.savetxt(os.path.join(checkpoints_dir, 'train_losses_final.txt'),
                    np.array(train_losses))
@@ -142,34 +152,57 @@ args = p.parse_args()
 # prepare data loader
 video = Video(skvideo.datasets.bikes())
 video_dataset = VideoDataset(video)
-train_dataloader = DataLoader(video_dataset, pin_memory=True, num_workers=8, batch_size=args.batch_size, shuffle=True)
-val_dataloader = DataLoader(video_dataset, pin_memory=False, num_workers=8, batch_size=args.batch_size, shuffle=True)
-
-if args.model_type == 'relu':
-    model = make_ffm_network(4, 1024).cuda()
-elif args.model_type == 'ffm':
-    B = torch.normal(0., 10., size=(256, 2))
-    B_t = torch.normal(0., 10., size=(256, 1))
-    model = make_ffm_network(4, 1024, B, B_t).cuda()
-elif args.model_type == 'rff':
-    raise NotImplementedError
-else:
-    raise NotImplementedError
-logdir = args.logdir
+train_dataloader = DataLoader(video_dataset, pin_memory=True, num_workers=16, batch_size=args.batch_size, shuffle=True)
+val_dataloader = DataLoader(video_dataset, pin_memory=False, num_workers=16, batch_size=args.batch_size, shuffle=True)
 
 # load checkpoints
+logdir = args.logdir
+global_step = 0
+model_params = None
+state_dict = None
 if os.path.exists(os.path.join(logdir, 'checkpoints')):
     ckpts = [os.path.join(logdir, 'checkpoints', f) for f in sorted(os.listdir(os.path.join(logdir, 'checkpoints'))) if 'pt' in f]
     if len(ckpts) > 0 and not args.restart:
         ckpt_path = ckpts[-1]
         print('Reloading from', ckpt_path)
-        model.load_state_dict(torch.load(ckpt_path))
+        ckpt = torch.load(ckpt_path)
+        global_step = ckpt['global_step']
+        model_params = ckpt['params']
+        state_dict = ckpt['model']
+
+# network architecture
+network_size = (8,256)
+
+if args.model_type == 'relu':
+    model = make_ffm_network(*network_size)
+elif args.model_type == 'ffm':
+    if model_params is None:
+        B = torch.normal(0., 2., size=(4096, 3))
+    else:
+        B = model_params
+    model = make_ffm_network(*network_size, B)
+    model_params = (B)
+elif args.model_type == 'rff':
+    if model_params is None:
+        W = rff_sample(5e-4, 1e-2, 2e-3, 8192)
+        b = np.random.uniform(0, np.pi * 2, 8192)
+    else:
+        W, b = model_params
+    model = make_rff_network(*network_size, W, b)
+    model_params = (W, b)
+else:
+    raise NotImplementedError
+
+if state_dict is not None:
+        model.load_state_dict(state_dict)
+model.cuda()
 
 # training
 if not args.test_only:
     train(model, train_dataloader, args.lr, epochs=args.num_epochs, 
         logdir=logdir, epochs_til_checkpoint=args.epochs_til_ckpt, 
-        steps_til_summary=args.steps_til_summary, val_dataloader=val_dataloader)
+        steps_til_summary=args.steps_til_summary, val_dataloader=val_dataloader,
+        global_step=global_step, model_params=model_params)
 
 # make full testing
 print("Running full validation set...")
@@ -179,14 +212,21 @@ val_dataloader = DataLoader(video_dataset, pin_memory=False, num_workers=val_dat
 model.eval()
 with torch.no_grad():
     preds = []
+    psnrs = []
     for (model_input, gt) in tqdm(val_dataloader):
         model_input, gt = model_input.cuda(), gt.cuda()
         model_out = model_pred(model, model_input)
         preds.append(model_out.cpu().numpy())
+        psnrs.append(model_psnr(model_loss(model_out, gt)).item())
         
 preds = np.vstack(preds).reshape(video.shape + (video.channels,))
-preds = np.clip((preds / 2. + 0.5) * 255, 0, 255).astype(np.uint8)
+preds = np.clip((preds + video.center) * 255, 0, 255).astype(np.uint8)
 writer = skvideo.io.FFmpegWriter(os.path.join(logdir, "test.mp4"))
 for i in range(video.shape[0]):
         writer.writeFrame(preds[i, :, :, :])
 writer.close()
+
+psnrs = np.array(psnrs)
+print(f"psnr mean: {psnrs.mean()}")
+print(f"psnr min: {psnrs.max()}")
+print(f"psnr min: {psnrs.min()}")
