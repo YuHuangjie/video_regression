@@ -171,7 +171,7 @@ if os.path.exists(os.path.join(logdir, 'checkpoints')):
         state_dict = ckpt['model']
 
 # network architecture
-network_size = (8,256)
+network_size = (3,1024)
 
 if args.model_type == 'relu':
     model = make_ffm_network(*network_size)
@@ -184,7 +184,7 @@ elif args.model_type == 'ffm':
     model_params = (B)
 elif args.model_type == 'rff':
     if model_params is None:
-        W = rff_sample(5e-4, 1e-2, 2e-3, 8192)
+        W = rff_sample(1e-3, 1e-2, 2e-3, 8192)
         b = np.random.uniform(0, np.pi * 2, 8192)
     else:
         W, b = model_params
