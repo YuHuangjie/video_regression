@@ -3,7 +3,6 @@ torch.autograd.set_detect_anomaly(True)
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
-from rff.reject_sample import joint_reject_sample
 
 class FFM:
     def __init__(self, B):
@@ -13,7 +12,7 @@ class FFM:
             self.map_f = lambda x: x
         else:
             def proj(x, B):
-                x_proj = torch.matmul(2 * np.pi * x, B.T)
+                x_proj = torch.matmul(x, B.T)
                 return torch.cat([torch.sin(x_proj), torch.cos(x_proj)], dim=-1)
             self.map_f = lambda x: proj(x, self.B)
 

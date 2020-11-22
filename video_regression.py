@@ -11,7 +11,7 @@ from tqdm import tqdm
 import configargparse
 
 from model import *
-from rff.reject_sample import *
+from sample import rff_sample
 
 def get_3d_mgrid(shape):
     pixel_coords = np.stack(np.mgrid[:shape[0], :shape[1], :shape[2]], axis=-1).astype(np.float32)
@@ -177,14 +177,14 @@ if args.model_type == 'relu':
     model = make_ffm_network(*network_size)
 elif args.model_type == 'ffm':
     if model_params is None:
-        B = torch.normal(0., 2., size=(4096, 3))
+        B = torch.normal(0., 15., size=(4096, 3))
     else:
         B = model_params
     model = make_ffm_network(*network_size, B)
     model_params = (B)
 elif args.model_type == 'rff':
     if model_params is None:
-        W = rff_sample(1e-3, 1e-2, 2e-3, 8192)
+        W = rff_sample(5e2, 2e2, 1e3, 8192)
         b = np.random.uniform(0, np.pi * 2, 8192)
     else:
         W, b = model_params
@@ -221,7 +221,7 @@ with torch.no_grad():
         
 preds = np.vstack(preds).reshape(video.shape + (video.channels,))
 preds = np.clip((preds + video.center) * 255, 0, 255).astype(np.uint8)
-writer = skvideo.io.FFmpegWriter(os.path.join(logdir, "test.mp4"))
+writer = skvideo.io.FFmpegWriter(os.path.join(logdir, "test.mp4"), outputdict={'-vcodec': 'libx264', '-crf': '13'})
 for i in range(video.shape[0]):
         writer.writeFrame(preds[i, :, :, :])
 writer.close()
