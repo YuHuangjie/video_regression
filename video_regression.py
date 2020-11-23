@@ -11,7 +11,7 @@ from tqdm import tqdm
 import configargparse
 
 from model import *
-from sample import rff_sample
+from sample import *
 
 def get_3d_mgrid(shape):
     pixel_coords = np.stack(np.mgrid[:shape[0], :shape[1], :shape[2]], axis=-1).astype(np.float32)
@@ -184,7 +184,8 @@ elif args.model_type == 'ffm':
     model_params = (B)
 elif args.model_type == 'rff':
     if model_params is None:
-        W = rff_sample(5e2, 2e2, 1e3, 8192)
+        W = rbf_sample(5e2, 2e2, 1e3, 8192)
+        # W = exp_sample(30, 30, 30*video.shape[1]/video.shape[0], 8192)
         b = np.random.uniform(0, np.pi * 2, 8192)
     else:
         W, b = model_params
