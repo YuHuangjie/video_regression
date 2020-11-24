@@ -184,9 +184,9 @@ elif args.model_type == 'ffm':
     model_params = (B)
 elif args.model_type == 'rff':
     if model_params is None:
-        W = rbf_sample(5e2, 2e2, 1e3, 8192)
-        # W = exp_sample(30, 30, 30*video.shape[1]/video.shape[0], 8192)
-        b = np.random.uniform(0, np.pi * 2, 8192)
+        # W = rbf_sample(5e2, 2e2, 1e3, 8192)
+        W = exp_sample(30, 30, 30*video.shape[1]/video.shape[0], 8192*2)
+        b = np.random.uniform(0, np.pi * 2, 8192*2)
     else:
         W, b = model_params
     model = make_rff_network(*network_size, W, b)
