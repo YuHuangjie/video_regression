@@ -229,5 +229,6 @@ writer.close()
 
 psnrs = np.array(psnrs)
 print(f"psnr mean: {psnrs.mean()}")
+print(f"psnr std dev.: {np.std(psnrs)}")
 print(f"psnr max: {psnrs.max()}")
 print(f"psnr min: {psnrs.min()}")
