@@ -6,7 +6,7 @@ import numpy as np
 
 class FFM:
     def __init__(self, B):
-        self.B = B
+        self.B = torch.Tensor(B)
 
         if B is None:
             self.map_f = lambda x: x
@@ -35,8 +35,6 @@ class RFF:
     def __init__(self, W, b):
         self.W = torch.Tensor(W)
         self.b = torch.Tensor(b)
-        # self.multiplier = np.sqrt(2) / np.sqrt(N)
-        self.multiplier = np.sqrt(2)
         self.N = self.W.shape[0]
 
     def map_size(self):
@@ -46,7 +44,7 @@ class RFF:
         if self.W.device != X.device:
             self.W = self.W.to(X.device)
             self.b = self.b.to(X.device)
-        Z = self.multiplier * torch.cos(X @ self.W.T + self.b)
+        Z = torch.cos(X @ self.W.T + self.b)
         return Z
 
 class MLP(nn.Module):
