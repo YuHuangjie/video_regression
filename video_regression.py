@@ -35,7 +35,7 @@ class Video:
             self.vid = skvideo.io.vread(path_to_video).astype(np.single) / 255.
 
         # subtract mean from data
-        self.center = np.mean(self.vid, axis=(0,1,2))
+        self.center = 0
         self.vid -= self.center
 
         self.shape = self.vid.shape[:-1]
@@ -174,7 +174,7 @@ if os.path.exists(os.path.join(logdir, 'checkpoints')):
 network_size = (3,1024)
 
 if args.model_type == 'relu':
-    model = make_ffm_network(*network_size)
+    model = make_relu_network(*network_size)
 elif args.model_type == 'ffm':
     if model_params is None:
         B = torch.normal(0., 15., size=(4096, 3))

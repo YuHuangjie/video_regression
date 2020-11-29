@@ -4,20 +4,24 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 
+class NoMap:
+    def __init__(self):
+        pass
+    def map_size(self):
+        return 3
+    def map(self, X):
+        return X
+
 class FFM:
     def __init__(self, B):
+        def proj(x, B):
+            x_proj = torch.matmul(x, B.T)
+            return torch.cat([torch.sin(x_proj), torch.cos(x_proj)], dim=-1)
         self.B = torch.Tensor(B)
-
-        if B is None:
-            self.map_f = lambda x: x
-        else:
-            def proj(x, B):
-                x_proj = torch.matmul(x, B.T)
-                return torch.cat([torch.sin(x_proj), torch.cos(x_proj)], dim=-1)
-            self.map_f = lambda x: proj(x, self.B)
+        self.map_f = lambda x: proj(x, self.B)
 
     def map_size(self):
-        return (2*self.B.shape[0] if self.B is not None else 3)
+        return 2*self.B.shape[0]
 
     def map(self, X):
         if self.B.device != X.device:
@@ -73,6 +77,10 @@ def make_ffm_network(D, W, B=None):
 
 def make_rff_network(D, W, We, b):
     map = RFF(We, b)
+    return MLP(D, W, map).float()
+
+def make_relu_network(D, W):
+    map = NoMap()
     return MLP(D, W, map).float()
 
 model_pred = lambda model, x: model(x)
