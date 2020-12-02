@@ -28,11 +28,11 @@ def get_3d_mgrid(shape):
     return pixel_coords
 
 class Video:
-    def __init__(self, path_to_video):
+    def __init__(self, path_to_video, frames=0):
         if 'npy' in path_to_video:
             self.vid = np.load(path_to_video)
         elif 'mp4' in path_to_video:
-            self.vid = skvideo.io.vread(path_to_video).astype(np.single) / 255.
+            self.vid = skvideo.io.vread(path_to_video, num_frames=frames).astype(np.single) / 255.
 
         # subtract mean from data
         self.center = 0
@@ -132,8 +132,11 @@ def train(model, train_dataloader, lr, epochs, logdir, epochs_til_checkpoint=10,
 p = configargparse.ArgumentParser()
 
 p.add_argument('--logdir', type=str, default='./logs/default', help='root for logging')
-p.add_argument('--test_only', type=bool, default=False, help='test only')
-p.add_argument('--restart', type=bool, default=False, help='do not reload from checkpoints')
+p.add_argument('--test_only', action='store_true', help='test only')
+p.add_argument('--restart', action='store_true', help='do not reload from checkpoints')
+
+p.add_argument('--video', type=str, default='bike', help='path to video')
+p.add_argument('--frames', type=int, default=0, help='frames to train, 0 denotes full length')
 
 # General training options
 p.add_argument('--batch_size', type=int, default=100000)
@@ -144,13 +147,16 @@ p.add_argument('--epochs_til_ckpt', type=int, default=10,
                help='Epoch interval until checkpoint is saved.')
 p.add_argument('--steps_til_summary', type=int, default=100,
                help='Step interval until loss is printed.')
-p.add_argument('--model_type', type=str, default='relu',
+p.add_argument('--model_type', type=str, default='gffm',
                help='Options currently are "relu" (all relu activations), "ffm" (fourier feature mapping),'
-                    '"rff" (random fourier features)')
+                    '"gffm" (generalized ffm)')
 args = p.parse_args()
 
 # prepare data loader
-video = Video(skvideo.datasets.bikes())
+if args.video == 'bike':
+    video = Video(skvideo.datasets.bikes())
+else:
+    video = Video(args.video, args.frames)
 video_dataset = VideoDataset(video)
 train_dataloader = DataLoader(video_dataset, pin_memory=True, num_workers=16, batch_size=args.batch_size, shuffle=True)
 val_dataloader = DataLoader(video_dataset, pin_memory=False, num_workers=16, batch_size=args.batch_size, shuffle=True)
@@ -182,7 +188,7 @@ elif args.model_type == 'ffm':
         B = model_params
     model = make_ffm_network(*network_size, B)
     model_params = (B)
-elif args.model_type == 'rff':
+elif args.model_type == 'gffm':
     if model_params is None:
         # W = rbf_sample(5e2, 2e2, 1e3, 8192)
         W = exp_sample(30, 30, 30*video.shape[1]/video.shape[0], 8192)
