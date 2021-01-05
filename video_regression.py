@@ -42,7 +42,7 @@ class Video:
         self.channels = self.vid.shape[-1]
 
 class VideoDataset(torch.utils.data.Dataset):
-    def __init__(self, video):
+    def __init__(self, video, downsample=None):
 
         self.vid = video
 
@@ -50,6 +50,12 @@ class VideoDataset(torch.utils.data.Dataset):
         data = torch.from_numpy(self.vid.vid)
         self.data = data.view(-1, self.vid.channels)
         self.N_samples = self.mgrid.shape[0]
+
+        if downsample is not None:
+            perm = np.random.RandomState(seed=42).permutation(self.N_samples)[::downsample]
+            self.mgrid = self.mgrid[perm]
+            self.data = self.data[perm]
+            self.N_samples = len(perm)
 
     def __len__(self):
         return self.N_samples
@@ -131,6 +137,7 @@ def train(model, train_dataloader, lr, epochs, logdir, epochs_til_checkpoint=10,
 
 p = configargparse.ArgumentParser()
 
+p.add_argument('--config', is_config_file=True, help='config file path')
 p.add_argument('--logdir', type=str, default='./logs/default', help='root for logging')
 p.add_argument('--test_only', action='store_true', help='test only')
 p.add_argument('--restart', action='store_true', help='do not reload from checkpoints')
@@ -150,6 +157,15 @@ p.add_argument('--steps_til_summary', type=int, default=100,
 p.add_argument('--model_type', type=str, default='gffm',
                help='Options currently are "relu" (all relu activations), "ffm" (fourier feature mapping),'
                     '"gffm" (generalized ffm)')
+p.add_argument('--ffm_map_size', type=int, default=2048,
+               help='mapping dimension of ffm')
+p.add_argument('--ffm_map_scale', type=float, default=16,
+               help='Gaussian mapping scale of positional input')
+p.add_argument('--gffm_map_size', type=int, default=4096,
+               help='mapping dimension of gffm')
+p.add_argument('--gffm_map_h', type=float, default=16)
+p.add_argument('--gffm_map_w', type=float, default=16)
+p.add_argument('--gffm_map_t', type=float, default=16)
 args = p.parse_args()
 
 # prepare data loader
@@ -157,12 +173,16 @@ if args.video == 'bike':
     video = Video(skvideo.datasets.bikes())
 else:
     video = Video(args.video, args.frames)
-video_dataset = VideoDataset(video)
-train_dataloader = DataLoader(video_dataset, pin_memory=True, num_workers=16, batch_size=args.batch_size, shuffle=True)
-val_dataloader = DataLoader(video_dataset, pin_memory=False, num_workers=16, batch_size=args.batch_size, shuffle=True)
+train_video_dataset = VideoDataset(video, downsample=4)
+val_video_dataset = VideoDataset(video)
+train_dataloader = DataLoader(train_video_dataset, pin_memory=True, num_workers=16, batch_size=args.batch_size, shuffle=True)
+val_dataloader = DataLoader(val_video_dataset, pin_memory=False, num_workers=16, batch_size=args.batch_size, shuffle=True)
+
+logdir = os.path.join(args.logdir, args.model_type)
+if args.restart:
+    shutil.rmtree(logdir, ignore_errors=True)
 
 # load checkpoints
-logdir = args.logdir
 global_step = 0
 model_params = None
 state_dict = None
@@ -183,16 +203,16 @@ if args.model_type == 'relu':
     model = make_relu_network(*network_size)
 elif args.model_type == 'ffm':
     if model_params is None:
-        B = torch.normal(0., 15., size=(4096, 3))
+        B = torch.normal(0., args.ffm_map_scale, size=(args.ffm_map_size, 3))
     else:
         B = model_params
     model = make_ffm_network(*network_size, B)
     model_params = (B)
 elif args.model_type == 'gffm':
     if model_params is None:
-        # W = rbf_sample(5e2, 2e2, 1e3, 8192)
-        W = exp_sample(30, 30, 30*video.shape[1]/video.shape[0], 8192)
-        b = np.random.uniform(0, np.pi * 2, 8192)
+        # W = rbf_sample(5e2, 2e2, 1e3, args.gffm_map_size)
+        W = exp_sample(args.gffm_map_t, args.gffm_map_h, args.gffm_map_w, args.gffm_map_size)
+        b = np.random.uniform(0, np.pi * 2, args.gffm_map_size)
     else:
         W, b = model_params
     model = make_rff_network(*network_size, W, b)
@@ -213,7 +233,7 @@ if not args.test_only:
 
 # make full testing
 print("Running full validation set...")
-val_dataloader = DataLoader(video_dataset, pin_memory=False, num_workers=val_dataloader.num_workers, 
+val_dataloader = DataLoader(val_video_dataset, pin_memory=False, num_workers=val_dataloader.num_workers, 
     batch_size=args.batch_size, shuffle=False)
 
 model.eval()
@@ -234,6 +254,8 @@ for i in range(video.shape[0]):
 writer.close()
 
 psnrs = np.array(psnrs)
+np.save(os.path.join(logdir, 'test_psnr.npy'), psnrs)
+np.savetxt(os.path.join(logdir, 'test_psnr.txt'), psnrs)
 print(f"psnr mean: {psnrs.mean()}")
 print(f"psnr std dev.: {np.std(psnrs)}")
 print(f"psnr max: {psnrs.max()}")

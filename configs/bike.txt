@@ -1,0 +1,14 @@
+logdir=./logs/bike
+video=bike
+
+model=gffm
+
+ffm_map_size=2048
+ffm_map_scale=32
+
+gffm_map_size=4096
+gffm_map_h=16
+gffm_map_w=20
+gffm_map_t=16
+
+num_epochs=20
