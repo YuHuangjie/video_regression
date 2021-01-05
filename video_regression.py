@@ -173,7 +173,7 @@ if args.video == 'bike':
     video = Video(skvideo.datasets.bikes())
 else:
     video = Video(args.video, args.frames)
-train_video_dataset = VideoDataset(video, downsample=4)
+train_video_dataset = VideoDataset(video, downsample=1)
 val_video_dataset = VideoDataset(video)
 train_dataloader = DataLoader(train_video_dataset, pin_memory=True, num_workers=16, batch_size=args.batch_size, shuffle=True)
 val_dataloader = DataLoader(val_video_dataset, pin_memory=False, num_workers=16, batch_size=args.batch_size, shuffle=True)
