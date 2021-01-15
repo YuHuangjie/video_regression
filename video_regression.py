@@ -150,7 +150,7 @@ p.add_argument('--batch_size', type=int, default=100000)
 p.add_argument('--lr', type=float, default=1e-4, help='learning rate. default=1e-4')
 p.add_argument('--num_epochs', type=int, default=100, help='Number of epochs to train for.')
 
-p.add_argument('--epochs_til_ckpt', type=int, default=10,
+p.add_argument('--epochs_til_ckpt', type=int, default=5,
                help='Epoch interval until checkpoint is saved.')
 p.add_argument('--steps_til_summary', type=int, default=100,
                help='Step interval until loss is printed.')
@@ -170,7 +170,7 @@ args = p.parse_args()
 
 # prepare data loader
 if args.video == 'bike':
-    video = Video(skvideo.datasets.bikes())
+    video = Video(skvideo.datasets.bikes(), args.frames)
 else:
     video = Video(args.video, args.frames)
 train_video_dataset = VideoDataset(video, downsample=1)
@@ -210,7 +210,7 @@ elif args.model_type == 'ffm':
     model_params = (B)
 elif args.model_type == 'gffm':
     if model_params is None:
-        # W = rbf_sample(5e2, 2e2, 1e3, args.gffm_map_size)
+        # W = rbf_sample(args.gffm_map_t, args.gffm_map_h, args.gffm_map_w, args.gffm_map_size)
         W = exp_sample(args.gffm_map_t, args.gffm_map_h, args.gffm_map_w, args.gffm_map_size)
         b = np.random.uniform(0, np.pi * 2, args.gffm_map_size)
     else:
