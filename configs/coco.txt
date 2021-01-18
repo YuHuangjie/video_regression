@@ -1,5 +1,5 @@
-logdir=./logs/tiktok
-video=tiktok.mp4
+logdir=./logs/coco
+video=coco.mp4
 frames=1440
 
 model=gffm
@@ -9,7 +9,7 @@ ffm_map_scale=32
 
 gffm_map_size=4096
 gffm_map_h=8
-gffm_map_w=10
+gffm_map_w=16
 gffm_map_t=32
 
 num_epochs=20
