@@ -42,7 +42,7 @@ class Video:
         self.channels = self.vid.shape[-1]
 
 class VideoDataset(torch.utils.data.Dataset):
-    def __init__(self, video, downsample=None):
+    def __init__(self, video, randomize=False, batch_size=1):
 
         self.vid = video
 
@@ -50,18 +50,31 @@ class VideoDataset(torch.utils.data.Dataset):
         data = torch.from_numpy(self.vid.vid)
         self.data = data.view(-1, self.vid.channels)
         self.N_samples = self.mgrid.shape[0]
+        self.batch_size = batch_size
+        self.randomize = randomize
 
-        if downsample is not None:
-            perm = np.random.RandomState(seed=42).permutation(self.N_samples)[::downsample]
+        if self.randomize:
+            perm = np.random.RandomState(seed=42).permutation(self.N_samples)
             self.mgrid = self.mgrid[perm]
             self.data = self.data[perm]
-            self.N_samples = len(perm)
 
     def __len__(self):
-        return self.N_samples
+            return int(np.ceil(self.N_samples / self.batch_size))
 
     def __getitem__(self, idx):
-        return self.mgrid[idx, :], self.data[idx, :]
+        if self.randomize:
+            start = np.random.randint(0, self.N_samples)
+            end = start + self.batch_size
+            if end < self.N_samples:
+                return (self.mgrid[start:end], self.data[start:end])
+            else:
+                # rotate
+                end -= self.N_samples
+                return ( np.vstack([self.mgrid[:end], self.mgrid[start:]]), 
+                        np.vstack([ self.data[:end],  self.data[start:]]))
+        else:
+            return (self.mgrid[idx*self.batch_size : (idx+1)*self.batch_size, :], 
+                    self.data[idx*self.batch_size : (idx+1)*self.batch_size, :])
 
 def train(model, train_dataloader, lr, epochs, logdir, epochs_til_checkpoint=10, 
     steps_til_summary=100, val_dataloader=None, global_step=0, model_params=None):
@@ -173,10 +186,9 @@ if args.video == 'bike':
     video = Video(skvideo.datasets.bikes(), args.frames)
 else:
     video = Video(args.video, args.frames)
-train_video_dataset = VideoDataset(video, downsample=1)
-val_video_dataset = VideoDataset(video)
-train_dataloader = DataLoader(train_video_dataset, pin_memory=True, num_workers=16, batch_size=args.batch_size, shuffle=True)
-val_dataloader = DataLoader(val_video_dataset, pin_memory=False, num_workers=16, batch_size=args.batch_size, shuffle=True)
+train_video_dataset = VideoDataset(video, randomize=True, batch_size=args.batch_size)
+val_video_dataset = VideoDataset(video, randomize=False, batch_size=args.batch_size)
+train_dataloader = DataLoader(train_video_dataset, pin_memory=True, batch_size=1, shuffle=True)
 
 logdir = os.path.join(args.logdir, args.model_type)
 if args.restart:
@@ -228,13 +240,12 @@ model.cuda()
 if not args.test_only:
     train(model, train_dataloader, args.lr, epochs=args.num_epochs, 
         logdir=logdir, epochs_til_checkpoint=args.epochs_til_ckpt, 
-        steps_til_summary=args.steps_til_summary, val_dataloader=val_dataloader,
+        steps_til_summary=args.steps_til_summary, val_dataloader=None,
         global_step=global_step, model_params=model_params)
 
 # make full testing
 print("Running full validation set...")
-val_dataloader = DataLoader(val_video_dataset, pin_memory=False, num_workers=val_dataloader.num_workers, 
-    batch_size=args.batch_size, shuffle=False)
+val_dataloader = DataLoader(val_video_dataset, pin_memory=False, batch_size=1, shuffle=False)
 
 model.eval()
 with torch.no_grad():
@@ -243,7 +254,7 @@ with torch.no_grad():
     for (model_input, gt) in tqdm(val_dataloader):
         model_input, gt = model_input.cuda(), gt.cuda()
         model_out = model_pred(model, model_input)
-        preds.append(model_out.cpu().numpy())
+        preds.append(np.squeeze(model_out.cpu().numpy()))
         psnrs.append(model_psnr(model_loss(model_out, gt)).item())
         
 preds = np.vstack(preds).reshape(video.shape + (video.channels,))
