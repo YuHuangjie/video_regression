@@ -31,6 +31,8 @@ class Video:
     def __init__(self, path_to_video, frames=0):
         if 'npy' in path_to_video:
             self.vid = np.load(path_to_video)
+            if frames > 0:
+                self.vid = self.vid[:frames]
         elif 'mp4' in path_to_video:
             self.vid = skvideo.io.vread(path_to_video, num_frames=frames).astype(np.single) / 255.
 
@@ -182,6 +184,7 @@ p.add_argument('--gffm_map_t', type=float, default=16)
 args = p.parse_args()
 
 # prepare data loader
+print("Loading " + args.video + " ...")
 if args.video == 'bike':
     video = Video(skvideo.datasets.bikes(), args.frames)
 else:
@@ -211,6 +214,7 @@ if os.path.exists(os.path.join(logdir, 'checkpoints')):
 # network architecture
 network_size = (3,1024)
 
+print("Sampling base kernel ...")
 if args.model_type == 'relu':
     model = make_relu_network(*network_size)
 elif args.model_type == 'ffm':
@@ -237,6 +241,7 @@ if state_dict is not None:
 model.cuda()
 
 # training
+print("Training ...")
 if not args.test_only:
     train(model, train_dataloader, args.lr, epochs=args.num_epochs, 
         logdir=logdir, epochs_til_checkpoint=args.epochs_til_ckpt, 
@@ -258,7 +263,8 @@ with torch.no_grad():
         psnrs.append(model_psnr(model_loss(model_out, gt)).item())
         
 preds = np.vstack(preds).reshape(video.shape + (video.channels,))
-preds = np.clip((preds + video.center) * 255, 0, 255).astype(np.uint8)
+np.clip((preds + video.center) * 255, 0, 255, out=preds)
+preds = preds.astype(np.uint8)
 writer = skvideo.io.FFmpegWriter(os.path.join(logdir, "test.mp4"), outputdict={'-vcodec': 'libx264', '-crf': '13'})
 for i in range(video.shape[0]):
         writer.writeFrame(preds[i, :, :, :])
